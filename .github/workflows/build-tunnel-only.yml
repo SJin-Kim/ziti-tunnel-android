@@ -57,17 +57,30 @@ jobs:
         restore-keys: |
           tunnel-deps-
 
-    - name: Build Tunnel Native Libraries
+    - name: Build dependencies for all architectures
       shell: bash
       run: |
         cd tunnel
 
-        # Build native dependencies and tunnel library for all architectures
+        # Build native dependencies first
         for triplet in arm-android arm64-android x86-android x64-android; do
-          echo "Building for $triplet..."
+          echo "Building dependencies for $triplet..."
           cmake --preset $triplet
           cmake --build --preset $triplet
         done
+
+    - name: Setup Gradle
+      uses: gradle/actions/setup-gradle@v4
+
+    - name: Build native libraries with Gradle
+      shell: bash
+      run: |
+        # Modify build.gradle.kts to build all architectures
+        sed -i 's/abiFilters("armeabi-v7a")/abiFilters("armeabi-v7a", "arm64-v8a", "x86", "x86_64")/' tunnel/build.gradle.kts
+        sed -i 's/abiFilters.add("armeabi-v7a")/abiFilters.addAll("armeabi-v7a", "arm64-v8a", "x86", "x86_64")/' tunnel/build.gradle.kts
+
+        # Build only tunnel module
+        ./gradlew :tunnel:assembleDebug -PskipDependentBuild
 
     - name: Collect .so files
       shell: bash
@@ -77,35 +90,32 @@ jobs:
         mkdir -p native-libs/x86
         mkdir -p native-libs/x86_64
 
-        # Search for all .so files in tunnel directory
+        # Search for all .so files
         echo "Searching for .so files..."
         find tunnel -name "*.so" -type f
 
-        # Copy built .so files to organized directory
-        find tunnel -name "*.so" -type f | while read so_file; do
-          echo "Found: $so_file"
+        # Copy from build output
+        if [ -d "tunnel/build/intermediates/cxx" ]; then
+          find tunnel/build/intermediates/cxx -name "libtunnel.so" | while read so_file; do
+            echo "Found: $so_file"
 
-          # Determine architecture from path
-          if [[ "$so_file" == *"arm-android"* ]] || [[ "$so_file" == *"arm-neon"* ]] || [[ "$so_file" == *"armeabi"* ]]; then
-            cp "$so_file" native-libs/armeabi-v7a/
-            echo "  -> Copied to armeabi-v7a/"
-          elif [[ "$so_file" == *"arm64-android"* ]] || [[ "$so_file" == *"arm64-v8a"* ]]; then
-            cp "$so_file" native-libs/arm64-v8a/
-            echo "  -> Copied to arm64-v8a/"
-          elif [[ "$so_file" == *"x86-android"* ]] && [[ "$so_file" != *"x86_64"* ]]; then
-            cp "$so_file" native-libs/x86/
-            echo "  -> Copied to x86/"
-          elif [[ "$so_file" == *"x64-android"* ]] || [[ "$so_file" == *"x86_64"* ]]; then
-            cp "$so_file" native-libs/x86_64/
-            echo "  -> Copied to x86_64/"
-          fi
-        done
+            if [[ "$so_file" == *"armeabi-v7a"* ]]; then
+              cp "$so_file" native-libs/armeabi-v7a/
+            elif [[ "$so_file" == *"arm64-v8a"* ]]; then
+              cp "$so_file" native-libs/arm64-v8a/
+            elif [[ "$so_file" == *"/x86/"* ]]; then
+              cp "$so_file" native-libs/x86/
+            elif [[ "$so_file" == *"x86_64"* ]]; then
+              cp "$so_file" native-libs/x86_64/
+            fi
+          done
+        fi
 
-        # Show what we collected
+        # Show collected files
         echo "Collected native libraries:"
         find native-libs -type f -name "*.so" -exec ls -lh {} \;
 
-        # Exit with error if no .so files found
+        # Exit with error if no files found
         if [ -z "$(find native-libs -type f -name "*.so")" ]; then
           echo "ERROR: No .so files were collected!"
           exit 1
