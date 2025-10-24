@@ -31,7 +31,14 @@ jobs:
         echo "using NDK version = $ndk_ver"
         echo "ANDROID_NDK_ROOT=${ANDROID_SDK_ROOT}/ndk/$ndk_ver" >> ${GITHUB_ENV}
 
-    - name: Setup vcpkg and build environment
+    - name: Setup vcpkg
+      shell: bash
+      run: |
+        git clone https://github.com/microsoft/vcpkg.git $HOME/vcpkg
+        $HOME/vcpkg/bootstrap-vcpkg.sh
+        echo "VCPKG_ROOT=$HOME/vcpkg" >> ${GITHUB_ENV}
+
+    - name: Setup build environment
       shell: bash
       run: |
         CI_CACHE=${GITHUB_WORKSPACE}/.ci_cache
