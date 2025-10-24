@@ -77,25 +77,39 @@ jobs:
         mkdir -p native-libs/x86
         mkdir -p native-libs/x86_64
 
+        # Search for all .so files in tunnel directory
+        echo "Searching for .so files..."
+        find tunnel -name "*.so" -type f
+
         # Copy built .so files to organized directory
-        find tunnel/build -name "*.so" -type f | while read so_file; do
+        find tunnel -name "*.so" -type f | while read so_file; do
           echo "Found: $so_file"
 
           # Determine architecture from path
-          if [[ "$so_file" == *"arm-android"* ]]; then
+          if [[ "$so_file" == *"arm-android"* ]] || [[ "$so_file" == *"arm-neon"* ]] || [[ "$so_file" == *"armeabi"* ]]; then
             cp "$so_file" native-libs/armeabi-v7a/
-          elif [[ "$so_file" == *"arm64-android"* ]]; then
+            echo "  -> Copied to armeabi-v7a/"
+          elif [[ "$so_file" == *"arm64-android"* ]] || [[ "$so_file" == *"arm64-v8a"* ]]; then
             cp "$so_file" native-libs/arm64-v8a/
-          elif [[ "$so_file" == *"x86-android"* ]]; then
+            echo "  -> Copied to arm64-v8a/"
+          elif [[ "$so_file" == *"x86-android"* ]] && [[ "$so_file" != *"x86_64"* ]]; then
             cp "$so_file" native-libs/x86/
-          elif [[ "$so_file" == *"x64-android"* ]]; then
+            echo "  -> Copied to x86/"
+          elif [[ "$so_file" == *"x64-android"* ]] || [[ "$so_file" == *"x86_64"* ]]; then
             cp "$so_file" native-libs/x86_64/
+            echo "  -> Copied to x86_64/"
           fi
         done
 
         # Show what we collected
         echo "Collected native libraries:"
         find native-libs -type f -name "*.so" -exec ls -lh {} \;
+
+        # Exit with error if no .so files found
+        if [ -z "$(find native-libs -type f -name "*.so")" ]; then
+          echo "ERROR: No .so files were collected!"
+          exit 1
+        fi
 
     - name: Upload Native Libraries
       uses: actions/upload-artifact@v4
