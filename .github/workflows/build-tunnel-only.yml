@@ -1,0 +1,150 @@
+name: Build Tunnel Native Libraries Only
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'tunnel/src/main/cpp/**'
+      - 'tunnel/CMakeLists.txt'
+      - 'tunnel/build.gradle.kts'
+
+jobs:
+  build-native-libs:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: '0'
+
+    - name: Set up JDK 21
+      uses: actions/setup-java@v4
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+
+    - name: Setup Android NDK
+      shell: bash
+      run: |
+        ndk_ver=$(awk -F=' ' '/^ndk =/{ gsub(/"/, ""); print $2}' gradle/libs.versions.toml)
+        echo "using NDK version = $ndk_ver"
+        echo "ANDROID_NDK_ROOT=${ANDROID_SDK_ROOT}/ndk/$ndk_ver" >> ${GITHUB_ENV}
+
+    - name: Setup vcpkg and build environment
+      shell: bash
+      run: |
+        CI_CACHE=${GITHUB_WORKSPACE}/.ci_cache
+        VCPKG_BINARY_SOURCES="clear;files,${CI_CACHE},readwrite"
+        mkdir -p ${CI_CACHE}
+        echo "CI_CACHE=${CI_CACHE}" >> ${GITHUB_ENV}
+        echo "VCPKG_BINARY_SOURCES=${VCPKG_BINARY_SOURCES}" >> ${GITHUB_ENV}
+
+    - name: Cache dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ${{ env.CI_CACHE }}
+          tunnel/build/cmake
+        key: tunnel-deps-${{ hashFiles('tunnel/vcpkg.json') }}
+        restore-keys: |
+          tunnel-deps-
+
+    - name: Build Tunnel Native Libraries
+      shell: bash
+      run: |
+        cd tunnel
+
+        # Build native dependencies and tunnel library for all architectures
+        for triplet in arm-android arm64-android x86-android x64-android; do
+          echo "Building for $triplet..."
+          cmake --preset $triplet
+          cmake --build --preset $triplet
+        done
+
+    - name: Collect .so files
+      shell: bash
+      run: |
+        mkdir -p native-libs/armeabi-v7a
+        mkdir -p native-libs/arm64-v8a
+        mkdir -p native-libs/x86
+        mkdir -p native-libs/x86_64
+
+        # Copy built .so files to organized directory
+        find tunnel/build -name "*.so" -type f | while read so_file; do
+          echo "Found: $so_file"
+
+          # Determine architecture from path
+          if [[ "$so_file" == *"arm-android"* ]]; then
+            cp "$so_file" native-libs/armeabi-v7a/
+          elif [[ "$so_file" == *"arm64-android"* ]]; then
+            cp "$so_file" native-libs/arm64-v8a/
+          elif [[ "$so_file" == *"x86-android"* ]]; then
+            cp "$so_file" native-libs/x86/
+          elif [[ "$so_file" == *"x64-android"* ]]; then
+            cp "$so_file" native-libs/x86_64/
+          fi
+        done
+
+        # Show what we collected
+        echo "Collected native libraries:"
+        find native-libs -type f -name "*.so" -exec ls -lh {} \;
+
+    - name: Upload Native Libraries
+      uses: actions/upload-artifact@v4
+      with:
+        name: ziti-tunnel-native-libs
+        path: native-libs/
+        retention-days: 30
+
+    - name: Create usage instructions
+      shell: bash
+      run: |
+        cat > native-libs/README.md << 'EOF'
+# Ziti Tunnel Native Libraries
+
+이 artifact는 ziti-tunnel-android의 네이티브 라이브러리(.so 파일들)만 포함합니다.
+
+## Windows Android Studio에서 사용하는 방법:
+
+1. **이 artifact 다운로드:**
+   - GitHub Actions 페이지에서 완료된 workflow 클릭
+   - "Artifacts" 섹션에서 `ziti-tunnel-native-libs` 다운로드
+   - ZIP 파일 압축 해제
+
+2. **프로젝트에 복사:**
+   ```bash
+   # 다운로드한 native-libs 폴더를 프로젝트로 복사
+   cp -r native-libs/* ziti-tunnel-android/tunnel/src/main/jniLibs/
+   ```
+
+3. **Android Studio에서 빌드:**
+   ```bash
+   cd ziti-tunnel-android
+   ./gradlew assembleDebug -PskipDependentBuild
+   ```
+
+   또는 Android Studio에서 직접 Run 버튼 클릭
+
+4. **UI 개발 및 디버깅:**
+   - 네이티브 빌드 없이 빠르게 앱 빌드 가능 (몇 초)
+   - Kotlin/Java 코드 수정 즉시 반영
+   - 에뮬레이터 또는 실제 기기에서 디버깅
+   - UI 레이아웃 실시간 수정 가능
+
+## 포함된 아키텍처:
+- armeabi-v7a (32-bit ARM)
+- arm64-v8a (64-bit ARM)
+- x86 (32-bit Intel)
+- x86_64 (64-bit Intel)
+
+## 네이티브 코드 수정 시:
+네이티브 C/C++ 코드를 수정한 경우 GitHub Actions를 다시 실행하여
+최신 .so 파일을 받으세요.
+EOF
+
+    - name: Upload README
+      uses: actions/upload-artifact@v4
+      with:
+        name: ziti-tunnel-native-libs-readme
+        path: native-libs/README.md

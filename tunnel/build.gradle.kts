@@ -37,7 +37,13 @@ android {
         externalNativeBuild {
             cmake {
                 arguments(*cmakeArgs.toTypedArray())
+                // Build only armeabi-v7a for faster builds
+                abiFilters("armeabi-v7a")
             }
+        }
+        // Also set ndk abiFilters
+        ndk {
+            abiFilters.add("armeabi-v7a")
         }
     }
 
@@ -83,11 +89,23 @@ tasks.named("preBuild").dependsOn(buildNative)
 
 if (!hasProperty("skipDependentBuild")) {
     val ndkRoot = android.ndkDirectory.absolutePath
+    val vcpkgRoot = System.getenv("VCPKG_ROOT") ?: "${System.getProperty("user.home")}/vcpkg"
+    val cmakePath = System.getenv("CMAKE_PATH") ?: "${System.getenv("ANDROID_SDK_ROOT")}/cmake/3.30.3/bin"
+    val ninjaPath = System.getenv("NINJA_PATH") ?: "${System.getProperty("user.home")}/bin"
+
     println("using NDK: $ndkRoot")
+    println("using VCPKG_ROOT: $vcpkgRoot")
+    println("using CMAKE_PATH: $cmakePath")
+    println("using NINJA_PATH: $ninjaPath")
+
     presets.forEach { triplet ->
         val task = tasks.register<Exec>("build-native-deps-${triplet}") {
-            executable("env")
-            args("ANDROID_NDK_ROOT=${ndkRoot}", "cmake", "--preset", triplet)
+            executable("cmake")
+            args("--preset", triplet)
+            workingDir(file("${projectDir}"))
+            environment("ANDROID_NDK_ROOT", ndkRoot)
+            environment("VCPKG_ROOT", vcpkgRoot)
+            environment("PATH", "${cmakePath}${File.pathSeparator}${ninjaPath}${File.pathSeparator}${System.getenv("PATH")}")
         }
         buildNative.dependsOn(task)
     }
