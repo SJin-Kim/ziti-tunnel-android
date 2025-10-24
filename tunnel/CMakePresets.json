@@ -75,5 +75,23 @@
         "VCPKG_TARGET_TRIPLET": "arm64-android"
       }
     }
+  ],
+  "buildPresets": [
+    {
+      "name": "x64-android",
+      "configurePreset": "x64-android"
+    },
+    {
+      "name": "x86-android",
+      "configurePreset": "x86-android"
+    },
+    {
+      "name": "arm-android",
+      "configurePreset": "arm-android"
+    },
+    {
+      "name": "arm64-android",
+      "configurePreset": "arm64-android"
+    }
   ]
 }
